@@ -1,7 +1,12 @@
 package study.queryDSL;
 
+import com.querydsl.core.BooleanBuilder;
 import com.querydsl.core.QueryResults;
 import com.querydsl.core.Tuple;
+import com.querydsl.core.types.ExpressionUtils;
+import com.querydsl.core.types.Predicate;
+import com.querydsl.core.types.Projections;
+import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.dsl.CaseBuilder;
 import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.JPAExpressions;
@@ -11,7 +16,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.Commit;
 import org.springframework.transaction.annotation.Transactional;
+import study.queryDSL.dto.MemberDto;
+import study.queryDSL.dto.QMemberDto;
+import study.queryDSL.dto.UserDto;
 import study.queryDSL.entity.Member;
 import study.queryDSL.entity.QMember;
 import study.queryDSL.entity.QTeam;
@@ -352,9 +361,9 @@ public class QuerydslBasicTest {
                 .selectFrom(member)
                 .where(member.age.in( // 서브쿼리에서 반환된 나이들과 비교하여 필터링
                         JPAExpressions // 서브쿼리를 표현하기 위한 JPAExpressions
-                            .select(memberSub.age)
-                            .from(memberSub)
-                            .where(memberSub.age.gt(10)) // 서브쿼리에서 나이가 10보다 큰 데이터들을 찾아내서 반환
+                                .select(memberSub.age)
+                                .from(memberSub)
+                                .where(memberSub.age.gt(10)) // 서브쿼리에서 나이가 10보다 큰 데이터들을 찾아내서 반환
                 ))
                 .fetch();
 
@@ -430,5 +439,247 @@ public class QuerydslBasicTest {
         }
     }
 
+    // 중급문법 ----------------------------------------------------------------------------------------------------
 
+    @Test
+    public void simpleProjection() {
+        List<String> result = queryFactory
+                .select(member.username)
+                .from(member)
+                .fetch();
+
+        for (String s : result) {
+            System.out.println("s = " + s);
+        }
+    }
+
+    @Test
+    public void tupleProjection() {
+        List<Tuple> result = queryFactory // dsl 의 tuple 타입 - 적절한 프로젝션으로 필요한 타입만 가져온다
+                .select(member.username, member.age)
+                .from(member)
+                .fetch();
+        // tuple 은 repository 또는 DAO 단을 넘는것 좋지 않음
+
+        for (Tuple tuple : result) {
+            String username = tuple.get(member.username); // 튜플에서 원하는 값 추출하기기
+           Integer age = tuple.get(member.age);
+
+            System.out.println("username = " + username);
+            System.out.println("age = " + age);
+        }
+    }
+
+    @Test
+    public void findDtoByJPQL() {
+        List<MemberDto> result = em.createQuery(
+                "select new study.queryDSL.dto.MemberDto(m.username,m.age) from Member m"
+                , MemberDto.class).getResultList();
+
+        for (MemberDto memberDto : result) {
+            System.out.println("memberDto = " + memberDto);
+        }
+    }
+
+    @Test
+    public void findDtoBySetter() {
+        // dsl 의 dto 생성방식 3가지, 생성자, 필드 직접접근, setter
+
+        List<MemberDto> result = queryFactory
+                .select(
+                        Projections.bean( // setter 방식
+                                MemberDto.class,
+                                member.username,
+                                member.age))
+                .from(member)
+                .fetch();
+        for (MemberDto memberDto : result) {
+            System.out.println("memberDto = " + memberDto);
+        }
+    }
+
+    @Test
+    public void findDtoByFields() {
+        // dsl 의 dto 생성방식 3가지, 생성자, 필드 직접접근, setter
+
+        List<MemberDto> result = queryFactory
+                .select(
+                        Projections.fields( // 필드에 직접 입력, private 무시
+                                MemberDto.class,
+                                member.username,
+                                member.age))
+                .from(member)
+                .fetch();
+        for (MemberDto memberDto : result) {
+            System.out.println("memberDto = " + memberDto);
+        }
+    }
+
+    @Test
+    public void findDtoByConstructor() {
+        // dsl 의 dto 생성방식 3가지, 생성자, 필드 직접접근, setter
+
+        List<MemberDto> result = queryFactory
+                .select(
+                        Projections.constructor( // 필드에 직접 입력 /  타입, 순서에 맞게 입력해야함
+                                MemberDto.class,
+                                member.username,
+                                member.age))
+                .from(member)
+                .fetch();
+        for (MemberDto memberDto : result) {
+            System.out.println("memberDto = " + memberDto);
+        }
+    }
+
+    @Test
+    public void findUserDto() {
+        // dsl 의 dto 생성방식 3가지, 생성자, 필드 직접접근, setter
+        QMember memberSub = new QMember("memberSub");
+
+        List<UserDto> result = queryFactory
+                .select(
+                        Projections.fields( // 필드에 직접 입력, private 무시, setter, 필드 방식은 필드명과 변수명이 같아야 한다
+                                UserDto.class,
+                                member.username.as("name"),
+
+                                ExpressionUtils.as(JPAExpressions
+                                    .select(memberSub.age.max())
+                                        .from(memberSub), "age") // select 절에서 서브쿼리에 약칭을 지정하고자 할때는 ExpressionUtils를 사용
+                        ))
+               .from(member)
+                .fetch();
+        for (UserDto memberDto : result) {
+            System.out.println("memberDto = " + memberDto);
+        }
+    }
+
+    @Test
+    public void findByQueryProjection() {
+        List<MemberDto> fetch = queryFactory
+                .select(new QMemberDto(member.username, member.age))
+                .from(member)
+                .fetch();
+
+        for (MemberDto memberDto : fetch) {
+            System.out.println("memberDto = " + memberDto);
+        }
+    }
+
+    @Test
+    public void dynamicQuery_BooleanBuilder() { // 불린 빌더를 이용한 동적 쿼리
+        String usernameParam = "member1";
+        Integer ageParam = null;
+
+        List<Member> result= searchMember1(usernameParam, ageParam);
+
+        assertThat(result.size()).isEqualTo(1);
+    }
+
+    private List<Member> searchMember1(String usernameParam, Integer ageParam) {
+
+        BooleanBuilder builder = new BooleanBuilder(member.username.eq(usernameParam)); // 불린 빌더 생성, 초기값 주입 가능
+
+        if(usernameParam != null) { // 파라미터가 null 인지 확인
+            builder.and(member.username.eq(usernameParam));  // null 이 아니라면 빌더에 조건절 쿼리문 추가
+        } // null 이라면 해당 조건 추가 안함
+
+        if(ageParam != null) { // 2번째
+            builder.and(member.age.eq(ageParam));
+        }
+
+        return queryFactory
+                .selectFrom(member)
+                .where(builder) // 조건에 맞게 작성된 빌더의 쿼리를 dsl에 적용, builder에도 추가적인 조건 가능
+                .fetch();
+    }
+
+    @Test
+    public void dynamicQuery_WhereParam() { // where 절에 메서드 사용
+        String usernameParam = "member1";
+        Integer ageParam = 10;
+
+        List<Member> result= searchMember2(usernameParam, ageParam);
+    }
+
+    private List<Member> searchMember2(String usernameParam, Integer ageParam) {
+        return queryFactory
+                .selectFrom(member)
+                .where( allEq(usernameParam, ageParam) ) // where 절에 메서드 호출, null을 받으면 쿼리문에 반영 안됨
+                .fetch();
+    }
+    // 메서드들은 재활용 가능, 가독성 상승
+    private BooleanExpression ageEq(Integer ageParam) { // where절에 호출된 동적 조건 메서드
+        // 값이 있다면 조건을 부여
+        // 받은 파라메터가 null 이면 그대로 null 반환
+        return ageParam != null ? member.age.eq(ageParam) : null;
+    }
+    private BooleanExpression usernameEq(String usernameParam) {
+        return usernameParam != null ? member.username.eq(usernameParam) : null;
+    }
+    private BooleanExpression allEq(String username, Integer age) { // 메서드들을 메서드 하나로 묶어주는 메서드
+        return ageEq(age).and(usernameEq(username)); // null 처리는 따로 해줘야함..
+    }
+
+    @Test
+    public void bulkUpdate() { // 업데이트
+        long count = queryFactory
+                .update(member)
+                .set(member.username, "비회원").set(member.age, 30)
+                .where(member.age.lt(28))
+                .execute(); // 벌크연산은 영속성 컨텍스트를 무시하고  db에 쿼리문을 보낸다 즉 둘 사이의 값이 달라질수 있다.
+                // jpa는 기존 영속성 컨텍스트 와 db에서 끌어온 데이터의 id가 같다면 영속성 컨텍스트를 우선한다
+        em.flush();
+        em.clear();
+
+        List<Member> fetch = queryFactory.select(member).from(member).fetch();
+        for (Member fetch1 : fetch) {
+            System.out.println("fetch1 = " + fetch1);
+        }
+    }
+
+    @Test
+    public void bulkadd() { // 사칙연산
+        queryFactory
+                .update(member)
+                .set(member.age, member.age.divide(2)) // add() , 뺴기는 없음 -로 할것, 곱셈은 multiply, 나누기는 divide
+                .execute();
+    }
+
+    @Test
+    public void bulkDelete() { // 삭제
+        queryFactory
+                .delete(member)
+                .where(member.age.gt(18))
+                .execute();
+    }
+
+    @Test
+    public void sqlFunction() { // sql 함수 호출
+        List<String> result = queryFactory
+                .select(
+                        Expressions.stringTemplate( // Expressions 를 사용 정수를 건드릴 거면 intTemplate, 함수가 Dialect 에 등록이 되어있어야 함
+                                "function('replace',{0},{1},{2})", member.username,"member", "m"))
+                //sql의 replace 함수 를 호출, 스펙상의 인덱스를 사용할 범위만큼 호출, 이후 순서대로 열거
+                .from(member)
+                .fetch();
+
+        for (String s : result) {
+            System.out.println("s = " + s);
+        }
+    }
+
+    @Test
+    public void sqlFunction2() {
+        List<String> fetch = queryFactory
+                .select(member.username)
+                .from(member)
+//                .where(member.username.eq(
+//                        Expressions.stringTemplate("function('lower',{0} )", member.username)))
+                .where(member.username.eq(member.username.lower())) // 표준 함수들은 대부분 dsl에서 지원함
+                .fetch();
+        for (String s : fetch) {
+            System.out.println("s = " + s);
+        }
+    }
 }
