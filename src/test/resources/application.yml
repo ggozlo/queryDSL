@@ -3,7 +3,7 @@ server:
 
 spring:
   profiles:
-    active: local # 메인이 실행된땐 local 이름으로 적용
+    active: test
 
   datasource:
     url: jdbc:h2:tcp://localhost/~/querydsl
