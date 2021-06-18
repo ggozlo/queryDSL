@@ -25,7 +25,7 @@ import static study.queryDSL.entity.QTeam.*;
 @Repository
 @RequiredArgsConstructor
 public class MemberJpaRepository {
-
+// 순수 JPA와쿼리 DSL 을 사용한 레퍼지토리
     private final EntityManager em;
     private final JPAQueryFactory queryFactory;
 
